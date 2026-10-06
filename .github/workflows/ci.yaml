@@ -5,9 +5,13 @@ on:
   push:
     branches:
       - main
+    tags:
+      - hday-*
     paths: &paths
       - .github/workflows/ci.yaml
       - cmd/**
+      - internal/**
+      - scripts/**
       - docker-bake.hcl
       - Dockerfile
       - go.mod
@@ -20,13 +24,16 @@ on:
     paths: *paths
 
 permissions:
+  contents: read
   packages: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
-      TAG: edge
+      REPO: ghcr.io/${{ github.repository }}
+      TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}
       BUILD_HASH: ${{ github.sha }}
       BUILD_ID: r${{ github.run_id }}
     steps:
@@ -46,19 +53,28 @@ jobs:
 
       - name: Login to GHCR
         uses: docker/login-action@v4
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/hday-'))
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push
+        id: push
         uses: docker/bake-action@v7
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/hday-'))
         with:
           source: .
           targets: app
           set: |
-            app.platform=linux/amd64
-            app.platform=linux/arm64
+            app.platform=linux/amd64,linux/arm64
             app.output=type=registry
+
+      - name: Record image digest
+        if: steps.push.outcome == 'success'
+        env:
+          BAKE_METADATA: ${{ steps.push.outputs.metadata }}
+        run: |
+          digest=$(jq -r '.app["containerimage.digest"]' <<< "$BAKE_METADATA")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s\n' "${REPO}:${TAG}@${digest}" >> "$GITHUB_STEP_SUMMARY"

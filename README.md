@@ -1,5 +1,9 @@
 # wfm
 
+Holiday's fork of [lesomnus/wfm](https://github.com/lesomnus/wfm), maintained at
+[heojeongbo-holiday/wfm](https://github.com/heojeongbo-holiday/wfm). The Go module
+path remains upstream-compatible.
+
 A gRPC service and CLI for controlling wifi on a remote node. It exposes the
 same interface — **scan APs → create a profile → connect → query status** —
 regardless of the node's wifi management stack (NetworkManager / iwd).
@@ -18,6 +22,13 @@ scaffolding is in [`cmd/config`](cmd/config) and [`cmd/version`](cmd/version).
 go build ./...
 go test ./...
 ```
+
+The fork's CI tests the code and publishes amd64 and arm64 images to
+`ghcr.io/heojeongbo-holiday/wfm` on `main` pushes or `hday-*` tags. Main uses
+`edge`; release tags use their tag name. Every publication also has an immutable
+`r<workflow-run-id>` tag, and the CI summary records the image index digest.
+Pin deployments by digest. The first GHCR publication must be made public in
+the package settings before anonymous robots or release builders can pull it.
 
 ## Run
 
