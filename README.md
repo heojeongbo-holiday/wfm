@@ -98,12 +98,27 @@ wfm --backend ubus interface list
 ```
 
 The node needs `rpcd`/`uhttpd-mod-ubus` installed and an rpcd login whose ACL
-grants the `iwinfo`, `uci` (wireless) and `network.wireless`/`network.interface`
-objects. The secret is read from `password_file` so it never appears in
+grants `iwinfo` (including `assoclist`), `uci` (wireless),
+`network.wireless.status`, the bound network's `network.interface.*.status`,
+and `network.reload` to apply committed configuration changes.
+See [the example ACL](test/openwrt/acl/wfm.json) for a scoped login.
+The secret is read from `password_file` so it never appears in
 `wfm config` output. OpenWrt is AP-centric; wfm's scan/connect model applies to
 a `wifi-iface` in **station** mode, and capabilities OpenWrt cannot express
 here — enterprise security, per-profile static IP, per-interface radio power —
 are reported as `Unimplemented`.
+
+Activating a profile disables other enabled station profiles on the same
+radio, including a failed attempt that is no longer listed as connected.
+AP interfaces and stations on other radios are left unchanged. A station is
+reported connected only when its runtime SSID matches the enabled profile
+and iwinfo reports an authorized peer.
+
+Some OpenWrt 25.12 builds reject the session argument that uhttpd adds to
+`network.wireless` calls ([OpenWrt issue #23081](https://github.com/openwrt/openwrt/issues/23081)).
+The router must accept authenticated HTTP calls to `network.wireless.status`;
+using `network.reload` for configuration changes does not remove that
+requirement.
 
 ## Backends
 

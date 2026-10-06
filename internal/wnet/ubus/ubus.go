@@ -43,7 +43,28 @@ func (b *Backend) Close() error { return nil }
 func (b *Backend) info(ctx context.Context, device string) (iwinfoInfo, error) {
 	var out iwinfoInfo
 	err := b.c.Call(ctx, "iwinfo", "info", map[string]any{"device": device}, &out)
-	return out, err
+	if err != nil || !strings.EqualFold(out.Mode, "Client") || !isAssociated(out.BSSID) {
+		return out, err
+	}
+	// nl80211 iwinfo may put the station's own MAC in bssid even before
+	// association. Only an authorized peer proves the uplink is connected.
+	var peers struct {
+		Results []struct {
+			MAC        string `json:"mac"`
+			Authorized bool   `json:"authorized"`
+		} `json:"results"`
+	}
+	out.BSSID = ""
+	if err := b.c.Call(ctx, "iwinfo", "assoclist", map[string]any{"device": device}, &peers); err != nil {
+		return out, err
+	}
+	for _, peer := range peers.Results {
+		if peer.Authorized && isAssociated(peer.MAC) {
+			out.BSSID = peer.MAC
+			break
+		}
+	}
+	return out, nil
 }
 
 func (b *Backend) toIface(device string, info iwinfoInfo) wnet.Interface {
@@ -145,7 +166,9 @@ func (b *Backend) commit(ctx context.Context) error {
 
 // reloadWifi reapplies the wireless config so committed changes take effect.
 func (b *Backend) reloadWifi(ctx context.Context) error {
-	return b.c.Call(ctx, "network.wireless", "up", nil, nil)
+	// Like `wifi reload`, ask netifd to reread UCI. wireless.up only brings
+	// up its existing in-memory configuration and can retain disabled stations.
+	return b.c.Call(ctx, "network", "reload", nil, nil)
 }
 
 // pickRadio returns the wifi-device a new station profile should attach to: the

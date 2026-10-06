@@ -150,6 +150,10 @@ func (c *Client) rawCall(ctx context.Context, session, object, method string, ar
 		return 0, nil, fmt.Errorf("decode ubus response: %w", err)
 	}
 	if rr.Error != nil {
+		// uhttpd reports expired sessions in the JSON-RPC envelope.
+		if rr.Error.Code == -32001 || rr.Error.Code == -32002 {
+			return ubusPermissionDenie, nil, nil
+		}
 		return 0, nil, fmt.Errorf("ubus jsonrpc error %d: %s", rr.Error.Code, rr.Error.Message)
 	}
 
