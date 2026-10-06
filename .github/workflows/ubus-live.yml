@@ -58,7 +58,18 @@ jobs:
           WFM_TEST_UBUS_PSK: wfmtest123
           WFM_TEST_UBUS_RADIO: radio1
           WFM_TEST_UBUS_CONNECT: '1'
+          WFM_TEST_UBUS_CAPTURE: test/openwrt/.capture
         run: go test -run TestUbusLive -v -count=1 ./internal/wnet/ubus/
+
+      - name: Captured test-node ubus state
+        if: failure()
+        run: |
+          for file in test/openwrt/.capture/*.json; do
+            [ -f "$file" ] || continue
+            echo "::group::$(basename "$file")"
+            cat "$file"
+            echo "::endgroup::"
+          done
 
       - name: VM serial log
         if: always()
