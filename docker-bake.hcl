@@ -2,7 +2,7 @@ variable "TAG" {
   default = "local"
 }
 variable "REPO" {
-  default = "ghcr.io/lesomnus/wfm"
+  default = "ghcr.io/heojeongbo-holiday/wfm"
 }
 variable "BUILD_HASH" {
   default = "0000000000000000000000000000000000000000"
@@ -43,7 +43,8 @@ target "app" {
     "org.opencontainers.image.title"         = "wfm",
     # "org.opencontainers.image.description"   = "",
     # "org.opencontainers.image.documentation" = "",
-    "org.opencontainers.image.url"           = "https://github.com/lesomnus/wfm",
+    "org.opencontainers.image.url"           = "https://github.com/heojeongbo-holiday/wfm",
+    "org.opencontainers.image.source"        = "https://github.com/heojeongbo-holiday/wfm",
     # "org.opencontainers.image.vendor"        = "",
     "org.opencontainers.image.revision"      = "${BUILD_HASH}",
     "org.opencontainers.image.version"       = "${APP_VERSION}",

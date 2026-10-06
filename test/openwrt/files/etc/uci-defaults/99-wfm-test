@@ -30,10 +30,15 @@ uci -q set network.wwan='interface'
 uci -q set network.wwan.proto='dhcp'
 uci -q commit network
 
+# hwsim also advertises 5 GHz; OpenWrt can default both radios to that band.
+# Pin compatible 2.4 GHz settings on both ends of this test link. The 23.05
+# hwsim/hostapd combination rejects auto-generated HT capabilities (LDPC), so
+# use legacy rates: this harness tests ubus/PSK behavior, not PHY throughput.
 uci -q batch <<EOF
 set wireless.radio0.disabled='0'
 set wireless.radio0.channel='1'
 set wireless.radio0.band='2g'
+set wireless.radio0.htmode='NOHT'
 delete wireless.default_radio0
 set wireless.default_radio0='wifi-iface'
 set wireless.default_radio0.device='radio0'
@@ -43,6 +48,9 @@ set wireless.default_radio0.ssid='$SSID'
 set wireless.default_radio0.encryption='psk2'
 set wireless.default_radio0.key='$KEY'
 set wireless.radio1.disabled='0'
+set wireless.radio1.band='2g'
+set wireless.radio1.channel='1'
+set wireless.radio1.htmode='NOHT'
 delete wireless.default_radio1
 commit wireless
 EOF

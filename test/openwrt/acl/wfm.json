@@ -16,7 +16,7 @@
 		"write": {
 			"ubus": {
 				"uci": ["add", "set", "delete", "commit"],
-				"network.wireless": ["up", "down", "reconf"]
+				"network": ["reload"]
 			},
 			"uci": ["wireless", "network"]
 		}

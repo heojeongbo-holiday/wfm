@@ -60,7 +60,7 @@ the backend/harness, so it does not run on every push.
 ## Status / caveats
 
 This harness is **scaffolding to be validated on its first real run** — the
-OpenWrt-specific bits (device/section names, `network.wireless up` as the apply
+OpenWrt-specific bits (device/section names, `network.reload` as the apply
 step, the `mgmt`/`lan`/`wwan` split, non-interactive `passwd`) are best-effort
 and are exactly the assumptions the live test exists to confirm. Expect to
 iterate on `files/etc/uci-defaults/99-wfm-test` after the first boot; the VM's

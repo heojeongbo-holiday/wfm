@@ -1,5 +1,9 @@
 # wfm
 
+Holiday's fork of [lesomnus/wfm](https://github.com/lesomnus/wfm), maintained at
+[heojeongbo-holiday/wfm](https://github.com/heojeongbo-holiday/wfm). The Go module
+path remains upstream-compatible.
+
 A gRPC service and CLI for controlling wifi on a remote node. It exposes the
 same interface — **scan APs → create a profile → connect → query status** —
 regardless of the node's wifi management stack (NetworkManager / iwd).
@@ -18,6 +22,13 @@ scaffolding is in [`cmd/config`](cmd/config) and [`cmd/version`](cmd/version).
 go build ./...
 go test ./...
 ```
+
+The fork's CI tests the code and publishes amd64 and arm64 images to
+`ghcr.io/heojeongbo-holiday/wfm` on `main` pushes or `hday-*` tags. Main uses
+`edge`; release tags use their tag name. Every publication also has an immutable
+`r<workflow-run-id>` tag, and the CI summary records the image index digest.
+Pin deployments by digest. The first GHCR publication must be made public in
+the package settings before anonymous robots or release builders can pull it.
 
 ## Run
 
@@ -98,14 +109,38 @@ wfm --backend ubus interface list
 ```
 
 The node needs `rpcd`/`uhttpd-mod-ubus` installed and an rpcd login whose ACL
-grants the `iwinfo`, `uci` (wireless) and `network.wireless`/`network.interface`
-objects. The secret is read from `password_file` so it never appears in
+grants `iwinfo` (including `assoclist`), `uci` (wireless),
+`network.wireless.status`, the bound network's `network.interface.*.status`,
+and `network.reload` to apply committed configuration changes.
+See [the example ACL](test/openwrt/acl/wfm.json) for a scoped login.
+The secret is read from `password_file` so it never appears in
 `wfm config` output. OpenWrt is AP-centric; wfm's scan/connect model applies to
 a `wifi-iface` in **station** mode, and capabilities OpenWrt cannot express
 here — enterprise security, per-profile static IP, per-interface radio power —
 are reported as `Unimplemented`.
 
+Activating a profile disables other enabled station profiles on the same
+radio, including a failed attempt that is no longer listed as connected.
+AP interfaces and stations on other radios are left unchanged. A station is
+reported connected only when its runtime SSID matches the enabled profile
+and iwinfo reports an authorized peer.
+
+Some OpenWrt 25.12 builds reject the session argument that uhttpd adds to
+`network.wireless` calls ([OpenWrt issue #23081](https://github.com/openwrt/openwrt/issues/23081)).
+The router must accept authenticated HTTP calls to `network.wireless.status`;
+using `network.reload` for configuration changes does not remove that
+requirement.
+
 ## Backends
+
+On routers that need a controlled radio restart to scan, `ubus.scan_object`
+can select a router-owned ubus object instead of `iwinfo`. The object must expose
+`scan` with a `device` string and return the same `results` array as
+`iwinfo.scan`; an `error` string is reported as a scan failure. The default is
+unchanged. Grant access to the selected method in the router's rpcd ACL.
+The router implementation owns locking and restoration even when the caller
+disconnects. Clients using the uplink being scanned must handle a lost reply;
+this option does not make a disruptive scan transparent to remote clients.
 
 | Backend | Target | Notes |
 |---|---|---|

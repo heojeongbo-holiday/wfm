@@ -59,11 +59,11 @@ func (b *Backend) connectionByID(ctx context.Context, id string) (wnet.Active, e
 	if err != nil {
 		return wnet.Active{}, err
 	}
-	if !ok || rt.ifname == "" {
+	if !ok || rt.iface.Disabled || rt.ifname == "" {
 		return wnet.Active{}, fmt.Errorf("%w: connection %s", wnet.ErrNotFound, id)
 	}
 	info, err := b.info(ctx, rt.ifname)
-	if err != nil || !isAssociated(info.BSSID) {
+	if err != nil || info.SSID != rt.iface.SSID || !isAssociated(info.BSSID) {
 		return wnet.Active{}, fmt.Errorf("%w: connection %s", wnet.ErrNotFound, id)
 	}
 	return wnet.Active{
@@ -86,12 +86,15 @@ func (b *Backend) Connections(ctx context.Context) ([]wnet.Active, error) {
 	}
 	out := []wnet.Active{}
 	for _, w := range stas {
+		if w.Disabled {
+			continue
+		}
 		ifname := status[w.Section]
 		if ifname == "" {
 			continue
 		}
 		info, err := b.info(ctx, ifname)
-		if err != nil || !isAssociated(info.BSSID) {
+		if err != nil || info.SSID != w.SSID || !isAssociated(info.BSSID) {
 			continue
 		}
 		id := profileID(w.SSID, encStrToSecKind(w.Encryption))
@@ -121,6 +124,24 @@ func (b *Backend) Activate(ctx context.Context, iface, profileID, bssid string) 
 	if !ok {
 		return wnet.Active{}, fmt.Errorf("%w: profile %s", wnet.ErrNotFound, profileID)
 	}
+	// A failed activation may leave an enabled, unassociated station which is
+	// absent from Connections. Disable peers on this radio when switching or
+	// rolling back, otherwise two stations can compete for different channels.
+	stas, err := b.staIfaces(ctx)
+	if err != nil {
+		return wnet.Active{}, err
+	}
+	for _, other := range stas {
+		if other.Section == cur.Section || other.Device != cur.Device || other.Disabled {
+			continue
+		}
+		if err := b.c.Call(ctx, "uci", "set", map[string]any{
+			"config": "wireless", "section": other.Section,
+			"values": map[string]any{"disabled": "1"},
+		}, nil); err != nil {
+			return wnet.Active{}, err
+		}
+	}
 
 	// Enable the station and set (or clear) the BSSID pin. Clearing a stale pin
 	// matters: a previous pin would otherwise lock this activation to a possibly
@@ -144,8 +165,8 @@ func (b *Backend) waitAssociated(ctx context.Context, id string, timeout time.Du
 	deadline := time.Now().Add(timeout)
 	for {
 		rt, ok, err := b.runtimeByID(ctx, id)
-		if err == nil && ok && rt.ifname != "" {
-			if info, err := b.info(ctx, rt.ifname); err == nil && isAssociated(info.BSSID) {
+		if err == nil && ok && !rt.iface.Disabled && rt.ifname != "" {
+			if info, err := b.info(ctx, rt.ifname); err == nil && info.SSID == rt.iface.SSID && isAssociated(info.BSSID) {
 				return nil
 			}
 		}
@@ -203,6 +224,9 @@ func (b *Backend) Status(ctx context.Context, connID string) (wnet.Status, error
 // signal) and, once connected, the bound network's IP configuration.
 func (b *Backend) statusFor(ctx context.Context, rt runtime) wnet.Status {
 	st := wnet.Status{State: wnet.StateIdle}
+	if rt.iface.Disabled {
+		return st
+	}
 	if rt.ifname == "" {
 		// Disabled/never-brought-up: idle unless the config says enabled.
 		if !rt.iface.Disabled {
@@ -214,7 +238,7 @@ func (b *Backend) statusFor(ctx context.Context, rt runtime) wnet.Status {
 	if err != nil {
 		return st
 	}
-	if isAssociated(info.BSSID) {
+	if info.SSID == rt.iface.SSID && isAssociated(info.BSSID) {
 		st.State = wnet.StateConnected
 		st.BSSID = strings.ToLower(info.BSSID)
 		st.Signal = signalQuality(info.Quality, info.QualityMax)

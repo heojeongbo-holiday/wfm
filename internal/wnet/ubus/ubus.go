@@ -15,9 +15,10 @@ const defaultNetwork = "wwan"
 
 // Backend controls wifi on a remote OpenWrt node over ubus JSON-RPC.
 type Backend struct {
-	c       *Client
-	radio   string // wifi-device for new station profiles ("" = first found)
-	network string // network interface a station binds to for DHCP
+	c          *Client
+	radio      string // wifi-device for new station profiles ("" = first found)
+	network    string // network interface a station binds to for DHCP
+	scanObject string // ubus object implementing the iwinfo scan response
 }
 
 var _ wnet.Backend = (*Backend)(nil)
@@ -32,7 +33,11 @@ func New(o Options) (*Backend, error) {
 	if network == "" {
 		network = defaultNetwork
 	}
-	return &Backend{c: c, radio: o.Radio, network: network}, nil
+	scanObject := o.ScanObject
+	if scanObject == "" {
+		scanObject = "iwinfo"
+	}
+	return &Backend{c: c, radio: o.Radio, network: network, scanObject: scanObject}, nil
 }
 
 func (b *Backend) Close() error { return nil }
@@ -43,7 +48,28 @@ func (b *Backend) Close() error { return nil }
 func (b *Backend) info(ctx context.Context, device string) (iwinfoInfo, error) {
 	var out iwinfoInfo
 	err := b.c.Call(ctx, "iwinfo", "info", map[string]any{"device": device}, &out)
-	return out, err
+	if err != nil || !strings.EqualFold(out.Mode, "Client") || !isAssociated(out.BSSID) {
+		return out, err
+	}
+	// nl80211 iwinfo may put the station's own MAC in bssid even before
+	// association. Only an authorized peer proves the uplink is connected.
+	var peers struct {
+		Results []struct {
+			MAC        string `json:"mac"`
+			Authorized bool   `json:"authorized"`
+		} `json:"results"`
+	}
+	out.BSSID = ""
+	if err := b.c.Call(ctx, "iwinfo", "assoclist", map[string]any{"device": device}, &peers); err != nil {
+		return out, err
+	}
+	for _, peer := range peers.Results {
+		if peer.Authorized && isAssociated(peer.MAC) {
+			out.BSSID = peer.MAC
+			break
+		}
+	}
+	return out, nil
 }
 
 func (b *Backend) toIface(device string, info iwinfoInfo) wnet.Interface {
@@ -97,13 +123,20 @@ func (b *Backend) SetPower(ctx context.Context, name string, on bool) (wnet.Inte
 
 func (b *Backend) Scan(ctx context.Context, iface string) ([]wnet.AP, error) {
 	var res struct {
-		Results []scanResult `json:"results"`
+		Results *[]scanResult `json:"results"`
+		Error   string        `json:"error"`
 	}
-	if err := b.c.Call(ctx, "iwinfo", "scan", map[string]any{"device": iface}, &res); err != nil {
+	if err := b.c.Call(ctx, b.scanObject, "scan", map[string]any{"device": iface}, &res); err != nil {
 		return nil, err
 	}
-	out := make([]wnet.AP, 0, len(res.Results))
-	for _, r := range res.Results {
+	if res.Error != "" {
+		return nil, fmt.Errorf("%s.scan: %s", b.scanObject, res.Error)
+	}
+	if res.Results == nil {
+		return nil, fmt.Errorf("%s.scan: missing results array", b.scanObject)
+	}
+	out := make([]wnet.AP, 0, len(*res.Results))
+	for _, r := range *res.Results {
 		out = append(out, apFromScan(r))
 	}
 	return out, nil
@@ -145,7 +178,9 @@ func (b *Backend) commit(ctx context.Context) error {
 
 // reloadWifi reapplies the wireless config so committed changes take effect.
 func (b *Backend) reloadWifi(ctx context.Context) error {
-	return b.c.Call(ctx, "network.wireless", "up", nil, nil)
+	// Like `wifi reload`, ask netifd to reread UCI. wireless.up only brings
+	// up its existing in-memory configuration and can retain disabled stations.
+	return b.c.Call(ctx, "network", "reload", nil, nil)
 }
 
 // pickRadio returns the wifi-device a new station profile should attach to: the

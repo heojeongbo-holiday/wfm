@@ -26,7 +26,7 @@ jobs:
       - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils
+          sudo apt-get install -y qemu-system-x86 qemu-utils sshpass
 
       - name: Enable KVM (best effort; falls back to TCG)
         run: |
@@ -58,7 +58,27 @@ jobs:
           WFM_TEST_UBUS_PSK: wfmtest123
           WFM_TEST_UBUS_RADIO: radio1
           WFM_TEST_UBUS_CONNECT: '1'
+          WFM_TEST_UBUS_CAPTURE: ${{ runner.temp }}/wfm-ubus-capture
         run: go test -run TestUbusLive -v -count=1 ./internal/wnet/ubus/
+
+      - name: Captured test-node ubus state
+        if: failure()
+        run: |
+          for file in "$RUNNER_TEMP"/wfm-ubus-capture/*.json; do
+            [ -f "$file" ] || continue
+            echo "::group::$(basename "$file")"
+            cat "$file"
+            echo "::endgroup::"
+          done
+
+      - name: Test-node wireless log
+        if: failure()
+        env:
+          SSHPASS: wfmtest
+        run: |
+          sshpass -e ssh -p 2222 -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$RUNNER_TEMP/wfm-known-hosts" \
+            -o ConnectTimeout=5 root@127.0.0.1 'logread | tail -200'
 
       - name: VM serial log
         if: always()
