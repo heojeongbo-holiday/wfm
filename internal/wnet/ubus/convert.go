@@ -30,8 +30,8 @@ type scanResult struct {
 	Encryption encryption `json:"encryption"`
 }
 
-// iwinfoInfo is the iwinfo `info` reply for one device. bssid is the associated
-// AP (all-zero when unassociated); hwaddr is the device's own MAC.
+// iwinfoInfo is the iwinfo `info` reply for one device. Backend.info normalizes
+// a client's bssid using assoclist; raw iwinfo can return its own MAC.
 type iwinfoInfo struct {
 	SSID       string     `json:"ssid"`
 	BSSID      string     `json:"bssid"`
